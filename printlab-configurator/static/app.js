@@ -96,62 +96,60 @@ function addBox(parent, w, h, d, x, y, z, material) {
 }
 
 function addBrandPreview(p) {
-  function addBrandPreview(p) {
-    const brandText = $("brandText").value.trim();
+  const brandText = $("brandText").value.trim();
 
-    brandPreviewMesh = null;
+  brandPreviewMesh = null;
 
-    if (!brandText) return;
+  if (!brandText) return;
 
-    const canvas = document.createElement("canvas");
-    const ctx = canvas.getContext("2d");
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
 
-    const fontSize = 160;
-    ctx.font = `${fontSize}px Arial`;
+  const fontSize = 160;
+  ctx.font = `${fontSize}px Arial`;
 
-    const metrics = ctx.measureText(brandText);
+  const metrics = ctx.measureText(brandText);
 
-    canvas.width = Math.max(512, Math.ceil(metrics.width + 100));
-    canvas.height = 256;
+  canvas.width = Math.max(512, Math.ceil(metrics.width + 100));
+  canvas.height = 256;
 
-    ctx.font = `${fontSize}px Arial`;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillStyle = "#805b48";
-    ctx.fillText(brandText, canvas.width / 2, canvas.height / 2);
+  ctx.font = `${fontSize}px Arial`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = "#805b48";
+  ctx.fillText(brandText, canvas.width / 2, canvas.height / 2);
 
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.colorSpace = THREE.SRGBColorSpace;
-    texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
 
-    const physicalWidth = (canvas.width / fontSize) * p.engravingSize;
-    const physicalHeight = (canvas.height / fontSize) * p.engravingSize;
+  const physicalWidth = (canvas.width / fontSize) * p.engravingSize;
+  const physicalHeight = (canvas.height / fontSize) * p.engravingSize;
 
-    const geometry = new THREE.PlaneGeometry(
-      physicalWidth,
-      physicalHeight
-    );
+  const geometry = new THREE.PlaneGeometry(
+    physicalWidth,
+    physicalHeight
+  );
 
-    const material = new THREE.MeshBasicMaterial({
-      map: texture,
-      transparent: true,
-      depthTest: true,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-      polygonOffset: true,
-      polygonOffsetFactor: -1
-    });
+  const material = new THREE.MeshBasicMaterial({
+    map: texture,
+    transparent: true,
+    depthTest: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    polygonOffset: true,
+    polygonOffsetFactor: -1
+  });
 
-    brandPreviewMesh = new THREE.Mesh(geometry, material);
+  brandPreviewMesh = new THREE.Mesh(geometry, material);
 
-    brandPreviewMesh.position.set(
-      engravingPosition.x,
-      engravingPosition.y,
-      p.base + 0.025
-    );
+  brandPreviewMesh.position.set(
+    engravingPosition.x,
+    engravingPosition.y,
+    p.base + 0.025
+  );
 
-    modelGroup.add(brandPreviewMesh);
-  }
+  modelGroup.add(brandPreviewMesh);
 }
 
 function renderPreview() {
