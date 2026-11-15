@@ -3,8 +3,8 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { STLLoader } from "three/addons/loaders/STLLoader.js";
 
 const $ = (id) => document.getElementById(id);
-const ids = ["length", "width", "height", "wall", "base", "radius", "columns", "rows", "divider", "engravingSize", "engravingDepth"];
-const defaults = { length: 120, width: 80, height: 15, wall: 2.5, base: 3, radius: 6, columns: 3, rows: 2, divider: 2, engravingSize: 5, engravingDepth: 0.6 };
+const ids = ["length", "width", "height", "wall", "base", "radius", "columns", "rows", "divider", "engravingSize", "engravingDepth", "engravingRotation"];
+const defaults = { length: 120, width: 80, height: 15, wall: 2.5, base: 3, radius: 6, columns: 3, rows: 2, divider: 2, engravingSize: 5, engravingDepth: 0.6, engravingRotation: 0 };
 
 const viewport = $("viewport");
 const scene = new THREE.Scene();
@@ -148,6 +148,9 @@ function addBrandPreview(p) {
     engravingPosition.y,
     p.base + 0.025
   );
+  brandPreviewMesh.rotation.z = THREE.MathUtils.degToRad(
+    p.engravingRotation
+  );
 
   modelGroup.add(brandPreviewMesh);
 }
@@ -271,8 +274,17 @@ renderer.domElement.addEventListener("pointermove", (event) => {
   modelGroup.worldToLocal(intersection);
 
   // Keep text inside the tray walls.
-  const halfTextWidth = brandPreviewMesh.geometry.parameters.width / 2;
-  const halfTextHeight = brandPreviewMesh.geometry.parameters.height / 2;
+  const angle = THREE.MathUtils.degToRad(p.engravingRotation);
+  const width = brandPreviewMesh.geometry.parameters.width;
+  const height = brandPreviewMesh.geometry.parameters.height;
+
+  const halfTextWidth =
+    (Math.abs(Math.cos(angle)) * width +
+      Math.abs(Math.sin(angle)) * height) / 2;
+
+  const halfTextHeight =
+    (Math.abs(Math.sin(angle)) * width +
+      Math.abs(Math.cos(angle)) * height) / 2;
 
   const maxX = Math.max(
     0,

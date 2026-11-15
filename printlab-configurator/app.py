@@ -25,6 +25,7 @@ def make_tray(p):
     engraving_size = float(p.get("engraving_size", 5))
     engraving_x = float(p.get("engraving_x", 0))
     engraving_y = float(p.get("engraving_y", 0))
+    engraving_rotation = float(p.get("engravingRotation", 0))
 
     # Basic dimensional checks prevent invalid or non-printable geometry.
     if not (40 <= length <= 250 and 40 <= width <= 200):
@@ -51,6 +52,8 @@ def make_tray(p):
         raise ValueError("Divider is too thick for the selected number of columns.")
     if rows > 1 and divider >= (width - 2 * wall) / rows:
         raise ValueError("Divider is too thick for the selected number of rows.")
+    if not (0 <= engraving_rotation <= 360):
+        raise ValueError("Text rotation must be between 0 and 360 degrees.")
 
     outer = (
         cq.Workplane("XY")
@@ -108,11 +111,12 @@ def make_tray(p):
                 valign="center",
                 combine=True,
             )
+            .rotate((0, 0, 0), (0, 0, 1), engraving_rotation)
             .translate((engraving_x, engraving_y, base - engraving_depth))
         )
 
-        # Subtract the text at its selected position.
-        tray = tray.cut(text_cutter).clean()
+    # Subtract the text at its selected position.
+    tray = tray.cut(text_cutter).clean()
 
     return tray.clean()
 
