@@ -39,6 +39,26 @@
       </div>
 
       <section class="control-section">
+        <h3>Tray shape</h3>
+        <div class="field">
+          <label for="trayShape">Choose shape</label>
+          <select id="trayShape">
+            <option value="rectangle" selected>Rectangle</option>
+            <option value="circle">Circle</option>
+            <option value="bubble">Bubble border</option>
+          </select>
+        </div>
+
+        <div class="field" id="diameterField" hidden>
+          <label for="diameter">
+            Diameter <output id="diameterOut">120</output>
+            <small>mm</small>
+          </label>
+          <input id="diameter" type="range" min="40" max="250" step="1" value="120">
+        </div>
+      </section>
+
+      <section class="control-section">
         <h3>Overall dimensions</h3>
         <div class="field">
           <label for="length">Length <output id="lengthOut">120</output> <small>mm</small></label>

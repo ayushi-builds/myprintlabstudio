@@ -1,3 +1,6 @@
+# cd /workspaces/myprintlabstudio/printlab-configurator
+# python app.py
+
 from pathlib import Path
 from flask import Flask, jsonify, render_template, request, send_file
 import cadquery as cq
@@ -115,7 +118,6 @@ def make_tray(p):
             .translate((engraving_x, engraving_y, base - engraving_depth))
         )
 
-    # Subtract the text at its selected position.
     tray = tray.cut(text_cutter).clean()
 
     return tray.clean()
