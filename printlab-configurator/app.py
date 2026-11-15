@@ -2,12 +2,290 @@ from pathlib import Path
 from flask import Flask, jsonify, render_template, request, send_file
 import cadquery as cq
 import math
+import xml.etree.ElementTree as ET
+from svgpathtools import parse_path
 
 BASE_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = BASE_DIR / "output"
 OUTPUT_DIR.mkdir(exist_ok=True)
 
 app = Flask(__name__)
+
+
+def point_inside_polygon(point, polygon):
+    """Return True when a point lies inside a polygon."""
+    x, y = point
+    inside = False
+
+    j = len(polygon) - 1
+
+    for i in range(len(polygon)):
+        xi, yi = polygon[i]
+        xj, yj = polygon[j]
+
+        intersects = (yi > y) != (yj > y) and x < (xj - xi) * (y - yi) / (
+            (yj - yi) or 1e-12
+        ) + xi
+
+        if intersects:
+            inside = not inside
+
+        j = i
+
+    return inside
+
+
+def polygon_area(points):
+    """Calculate absolute polygon area."""
+    area = 0
+
+    for i in range(len(points)):
+        x1, y1 = points[i]
+        x2, y2 = points[(i + 1) % len(points)]
+        area += x1 * y2 - x2 * y1
+
+    return abs(area) / 2
+
+
+def sample_svg_path(path_data):
+    """Convert an SVG path into closed polygon contours."""
+    parsed = parse_path(path_data)
+    contours = []
+
+    for subpath in parsed.continuous_subpaths():
+        if not subpath:
+            continue
+
+        start = subpath[0].start
+        end = subpath[-1].end
+
+        if abs(start - end) > 0.01:
+            raise ValueError(
+                "SVG contains an open path. Please use closed, filled shapes."
+            )
+
+        points = []
+
+        for segment in subpath:
+            segment_length = segment.length(error=0.001)
+            steps = max(2, min(200, math.ceil(segment_length / 0.5)))
+
+            for step in range(steps):
+                point = segment.point(step / steps)
+                points.append((point.real, point.imag))
+
+        if len(points) >= 3:
+            contours.append(points)
+
+    return contours
+
+
+def make_logo_cutter(p):
+    """Create a CadQuery solid that cuts the uploaded SVG logo."""
+
+    svg_text = str(p.get("logo_svg", "")).strip()
+
+    if not svg_text:
+        return None
+
+    if len(svg_text.encode("utf-8")) > 1024 * 1024:
+        raise ValueError("SVG file must be smaller than 1 MB.")
+
+    logo_width = float(p.get("logo_width", 25))
+    logo_x = float(p.get("logo_x", 0))
+    logo_y = float(p.get("logo_y", 0))
+    logo_rotation = float(p.get("logo_rotation", 0))
+    logo_depth = float(p.get("logo_depth", 0.6))
+
+    if not (5 <= logo_width <= 60):
+        raise ValueError("Logo width must be between 5 and 60 mm.")
+
+    if not (-100 <= logo_x <= 100 and -100 <= logo_y <= 100):
+        raise ValueError("Logo position is outside the supported range.")
+
+    if not (0 <= logo_rotation <= 360):
+        raise ValueError("Logo rotation must be between 0 and 360 degrees.")
+
+    if not (0.2 <= logo_depth <= 1.5):
+        raise ValueError("Logo engraving depth must be between 0.2 and 1.5 mm.")
+
+    # Parse and validate SVG XML.
+    try:
+        root = ET.fromstring(svg_text)
+    except ET.ParseError as exc:
+        raise ValueError("The uploaded SVG is not valid XML.") from exc
+
+    allowed_elements = {"svg", "g", "path", "title", "desc"}
+
+    path_elements = []
+
+    for element in root.iter():
+        tag = element.tag.split("}")[-1]
+
+        if tag not in allowed_elements:
+            raise ValueError(
+                f"Unsupported SVG element: {tag}. Please upload a path-based SVG."
+            )
+
+        if element.attrib.get("transform"):
+            raise ValueError(
+                "This SVG uses transforms. Please export it with transforms "
+                "applied to the paths (flattened)."
+            )
+
+        if tag == "path":
+            path_elements.append(element)
+
+    view_box = root.attrib.get("viewBox")
+
+    if not view_box:
+        raise ValueError("SVG must contain a viewBox attribute.")
+
+    try:
+        view_box_values = [float(value) for value in view_box.replace(",", " ").split()]
+    except ValueError as exc:
+        raise ValueError("SVG viewBox is invalid.") from exc
+
+    if len(view_box_values) != 4 or view_box_values[2] <= 0 or view_box_values[3] <= 0:
+        raise ValueError("SVG viewBox dimensions are invalid.")
+
+    if not path_elements:
+        raise ValueError("No SVG path elements were found.")
+
+    contours = []
+
+    for element in path_elements:
+        path_data = element.attrib.get("d", "").strip()
+
+        if not path_data:
+            continue
+
+        fill = element.attrib.get("fill", "").strip().lower()
+        style = element.attrib.get("style", "").replace(" ", "").lower()
+
+        if fill == "none" or "fill:none" in style:
+            continue
+
+        if "url(" in style or "url(" in fill:
+            raise ValueError("SVG gradients and external fills are not supported.")
+
+        contours.extend(sample_svg_path(path_data))
+
+    if not contours:
+        raise ValueError("No closed, filled SVG paths were found.")
+
+    # Find the complete logo bounding box.
+    all_points = [point for contour in contours for point in contour]
+
+    min_x = min(point[0] for point in all_points)
+    max_x = max(point[0] for point in all_points)
+    min_y = min(point[1] for point in all_points)
+    max_y = max(point[1] for point in all_points)
+
+    original_width = max_x - min_x
+
+    if original_width <= 0:
+        raise ValueError("SVG logo has invalid dimensions.")
+
+    center_x = (min_x + max_x) / 2
+    center_y = (min_y + max_y) / 2
+
+    scale = logo_width / original_width
+
+    angle = math.radians(logo_rotation)
+    cos_a = math.cos(angle)
+    sin_a = math.sin(angle)
+
+    # Match the frontend preview:
+    # center the SVG, invert its Y direction, scale uniformly,
+    # rotate around its center, and position it on the tray.
+    transformed_contours = []
+
+    for contour in contours:
+        transformed = []
+
+        for x, y in contour:
+            local_x = (x - center_x) * scale
+            local_y = -(y - center_y) * scale
+
+            rotated_x = local_x * cos_a - local_y * sin_a
+            rotated_y = local_x * sin_a + local_y * cos_a
+
+            transformed.append((rotated_x + logo_x, rotated_y + logo_y))
+
+        transformed_contours.append(transformed)
+
+    # Determine which contours are holes and which are filled islands.
+    areas = [polygon_area(contour) for contour in transformed_contours]
+
+    parents = [None] * len(transformed_contours)
+
+    for i, contour in enumerate(transformed_contours):
+        possible_parents = []
+
+        for j, other in enumerate(transformed_contours):
+            if i == j or areas[j] <= areas[i]:
+                continue
+
+            if point_inside_polygon(contour[0], other):
+                possible_parents.append(j)
+
+        if possible_parents:
+            parents[i] = min(possible_parents, key=lambda index: areas[index])
+
+    depths = [None] * len(transformed_contours)
+
+    def get_depth(index):
+        if depths[index] is not None:
+            return depths[index]
+
+        parent = parents[index]
+
+        if parent is None:
+            depths[index] = 0
+        else:
+            depths[index] = get_depth(parent) + 1
+
+        return depths[index]
+
+    for i in range(len(transformed_contours)):
+        get_depth(i)
+
+    # Create solid cutters. Even-depth contours are filled;
+    # their immediate odd-depth children become holes.
+    cutter_solids = []
+
+    cut_start_z = float(p.get("base", 3)) - logo_depth
+    cut_height = logo_depth + 0.1
+
+    for i, contour in enumerate(transformed_contours):
+        if depths[i] % 2 != 0:
+            continue
+
+        outer_points = [cq.Vector(x, y, cut_start_z) for x, y in contour]
+
+        outer_wire = cq.Wire.makePolygon(outer_points, close=True)
+
+        hole_wires = []
+
+        for j, hole in enumerate(transformed_contours):
+            if parents[j] == i and depths[j] == depths[i] + 1:
+                hole_points = [cq.Vector(x, y, cut_start_z) for x, y in hole]
+
+                hole_wires.append(cq.Wire.makePolygon(hole_points, close=True))
+
+        solid = cq.Solid.extrudeLinear(
+            outer_wire, hole_wires, cq.Vector(0, 0, cut_height)
+        )
+
+        cutter_solids.append(solid)
+
+    if not cutter_solids:
+        raise ValueError("Could not create engraving geometry from this SVG.")
+
+    cutter = cq.Workplane("XY").newObject(cutter_solids)
+
+    return cutter
 
 
 def make_tray(p):
@@ -219,8 +497,22 @@ def make_tray(p):
         )
 
         tray = tray.cut(text_cutter)
+        return tray.clean()
 
-    return tray.clean()
+    # =========================================================
+    # LOGO ENGRAVING: SVG converted into actual 3D geometry
+    # =========================================================
+    logo_cutter = make_logo_cutter(p)
+
+    if logo_cutter is not None:
+        logo_depth = float(p.get("logo_depth", 0.6))
+
+        if logo_depth > base - 0.4:
+            raise ValueError("Logo engraving depth must leave at least 0.4 mm of base.")
+
+        tray = tray.cut(logo_cutter)
+
+        return tray.clean()
 
 
 @app.get("/")

@@ -1,7 +1,7 @@
-
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { STLLoader } from "three/addons/loaders/STLLoader.js";
+import { SVGLoader } from "three/addons/loaders/SVGLoader.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -78,6 +78,8 @@ scene.add(modelGroup);
 let generatedMesh = null;
 let brandPreviewMesh = null;
 let isDraggingBrand = false;
+let logoSvgText = "";
+let logoPreviewGroup = null;
 
 let engravingPosition = {
   x: 0,
@@ -134,6 +136,7 @@ function clearModelGroup() {
 
   modelGroup.clear();
   brandPreviewMesh = null;
+  logoPreviewGroup = null;
 }
 
 // --------------------------------------------------
@@ -152,6 +155,12 @@ function params() {
   p.brand_text = $("brandText").value.trim();
   p.engraving_x = engravingPosition.x;
   p.engraving_y = engravingPosition.y;
+  p.logo_svg = logoSvgText;
+  p.logo_width = Number($("logoWidth").value);
+  p.logo_x = Number($("logoX").value);
+  p.logo_y = Number($("logoY").value);
+  p.logo_rotation = Number($("logoRotation").value);
+  p.logo_depth = Number($("logoDepth").value);
 
   return p;
 }
@@ -292,7 +301,100 @@ function addBrandPreview(p) {
 
   modelGroup.add(brandPreviewMesh);
 }
+// --------------------------------------------------
+// LOGO ENGRAVING PREVIEW
+// --------------------------------------------------
 
+function addLogoPreview(p) {
+  if (!logoSvgText) return;
+
+  try {
+    const loader = new SVGLoader();
+    const svgData = loader.parse(logoSvgText);
+
+    logoPreviewGroup = new THREE.Group();
+
+    const logoMaterial = new THREE.MeshBasicMaterial({
+      color: 0x805b48,
+      side: THREE.DoubleSide,
+      depthTest: true,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -2
+    });
+
+    svgData.paths.forEach(path => {
+      const shapes = SVGLoader.createShapes(path);
+
+      shapes.forEach(shape => {
+        const geometry = new THREE.ShapeGeometry(shape);
+
+        const mesh = new THREE.Mesh(
+          geometry,
+          logoMaterial
+        );
+
+        logoPreviewGroup.add(mesh);
+      });
+    });
+
+    if (logoPreviewGroup.children.length === 0) {
+      throw new Error("No filled vector paths found in this SVG.");
+    }
+
+    // Calculate original logo dimensions.
+    logoPreviewGroup.updateMatrixWorld(true);
+
+    const bounds = new THREE.Box3().setFromObject(
+      logoPreviewGroup
+    );
+
+    const center = bounds.getCenter(new THREE.Vector3());
+    const size = bounds.getSize(new THREE.Vector3());
+
+    if (size.x <= 0 || size.y <= 0) {
+      throw new Error("The SVG has invalid dimensions.");
+    }
+
+    // Center all logo geometry around its origin.
+    logoPreviewGroup.children.forEach(mesh => {
+      mesh.geometry.translate(
+        -center.x,
+        -center.y,
+        0
+      );
+    });
+
+    // Preserve the SVG's original proportions.
+    const targetWidth = Number($("logoWidth").value);
+    const scale = targetWidth / size.x;
+
+    logoPreviewGroup.scale.set(
+      scale,
+      -scale,
+      scale
+    );
+
+    logoPreviewGroup.position.set(
+      Number($("logoX").value),
+      Number($("logoY").value),
+      p.base + 0.04
+    );
+
+    logoPreviewGroup.rotation.z =
+      THREE.MathUtils.degToRad(
+        Number($("logoRotation").value)
+      );
+
+    modelGroup.add(logoPreviewGroup);
+
+  } catch (error) {
+    console.error("Logo preview error:", error);
+
+    $("logoStatus").textContent =
+      "Could not display SVG: " + error.message;
+  }
+}
 // --------------------------------------------------
 // MAIN PREVIEW
 // --------------------------------------------------
@@ -312,6 +414,16 @@ function renderPreview() {
 
   $("engravingSizeOut").textContent = p.engravingSize;
   $("engravingDepthOut").textContent = p.engravingDepth;
+
+  [
+    "logoWidth",
+    "logoX",
+    "logoY",
+    "logoRotation",
+    "logoDepth"
+  ].forEach(id => {
+    $(id + "Out").textContent = $(id).value;
+  });
 
   if (p.trayShape === "rectangle") {
     $("summary").textContent =
@@ -567,6 +679,7 @@ function renderPreview() {
   // ================================================
 
   addBrandPreview(p);
+  addLogoPreview(p);
 
   controls.target.set(0, p.height / 2, 0);
   controls.update();
@@ -817,6 +930,19 @@ $("reset").addEventListener("click", () => {
 
   $("trayShape").value = "rectangle";
   $("brandText").value = "";
+  logoSvgText = "";
+
+  $("logoFile").value = "";
+  $("logoControls").hidden = true;
+
+  $("logoStatus").textContent =
+    "Upload a single-colour SVG logo.";
+
+  $("logoWidth").value = 25;
+  $("logoX").value = 0;
+  $("logoY").value = 0;
+  $("logoRotation").value = 0;
+  $("logoDepth").value = 0.6;
 
   engravingPosition = { x: 0, y: 0 };
 
@@ -829,6 +955,100 @@ $("reset").addEventListener("click", () => {
 
 $("diameter").addEventListener("input", renderPreview);
 
+// --------------------------------------------------
+// LOGO UPLOAD AND CONTROLS
+// --------------------------------------------------
+
+const logoControlIds = [
+  "logoWidth",
+  "logoX",
+  "logoY",
+  "logoRotation",
+  "logoDepth"
+];
+
+// Update preview when logo settings change.
+logoControlIds.forEach(id => {
+  $(id).addEventListener("input", () => {
+    renderPreview();
+
+    $("message").textContent =
+      "Logo preview updated. Generate STL to export.";
+  });
+});
+
+// Upload SVG.
+$("logoFile").addEventListener("change", async (event) => {
+  const file = event.target.files[0];
+
+  if (!file) return;
+
+  try {
+    if (!file.name.toLowerCase().endsWith(".svg")) {
+      throw new Error("Please upload an SVG file.");
+    }
+
+    if (file.size > 1024 * 1024) {
+      throw new Error("SVG file must be smaller than 1 MB.");
+    }
+
+    const svgText = await file.text();
+
+    // Reject active content and external resources.
+    if (
+      /<script\b|<foreignObject\b|<image\b|<iframe\b|javascript:|url\s*\(/i.test(svgText) ||
+      /\bhref\s*=/i.test(svgText)
+    ) {
+      throw new Error(
+        "This SVG contains unsupported or external content."
+      );
+    }
+
+    // Validate that the file can be parsed.
+    const loader = new SVGLoader();
+    const parsed = loader.parse(svgText);
+
+    if (!parsed.paths || parsed.paths.length === 0) {
+      throw new Error("No vector paths found in this SVG.");
+    }
+
+    logoSvgText = svgText;
+
+    $("logoControls").hidden = false;
+    $("logoStatus").textContent =
+      "Logo loaded: " + file.name;
+
+    renderPreview();
+
+    $("message").textContent =
+      "Logo uploaded successfully. Adjust its position and size.";
+
+  } catch (error) {
+    console.error("SVG upload error:", error);
+
+    logoSvgText = "";
+    $("logoControls").hidden = true;
+
+    $("logoStatus").textContent = error.message;
+
+    renderPreview();
+  }
+});
+
+// Remove uploaded logo.
+$("removeLogo").addEventListener("click", () => {
+  logoSvgText = "";
+
+  $("logoFile").value = "";
+  $("logoControls").hidden = true;
+
+  $("logoStatus").textContent =
+    "Upload a single-colour SVG logo.";
+
+  renderPreview();
+
+  $("message").textContent = "Logo removed.";
+});
 // --------------------------------------------------
 // STL GENERATION
 // Registered only once

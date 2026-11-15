@@ -126,6 +126,68 @@
 
 
       <section class="control-section">
+        <section class="control-section">
+          <h3>Logo engraving</h3>
+
+          <div class="field">
+            <label for="logoFile">Upload logo <small>SVG only</small></label>
+            <input type="file" id="logoFile" accept=".svg,image/svg+xml">
+            <p class="field-hint" id="logoStatus">
+              Upload a single-colour SVG logo.
+            </p>
+          </div>
+
+          <div id="logoControls" hidden>
+            <div class="field">
+              <label for="logoWidth">
+                Logo width <output id="logoWidthOut">25</output>
+                <small>mm</small>
+              </label>
+              <input type="range" id="logoWidth" min="5" max="60" step="1" value="25">
+            </div>
+
+            <div class="field">
+              <label for="logoX">
+                Horizontal position <output id="logoXOut">0</output>
+                <small>mm</small>
+              </label>
+              <input type="range" id="logoX" min="-100" max="100" step="1" value="0">
+            </div>
+
+            <div class="field">
+              <label for="logoY">
+                Vertical position <output id="logoYOut">0</output>
+                <small>mm</small>
+              </label>
+              <input type="range" id="logoY" min="-100" max="100" step="1" value="0">
+            </div>
+
+            <div class="field">
+              <label for="logoRotation">
+                Logo rotation <output id="logoRotationOut">0</output>
+                <small>degrees</small>
+              </label>
+              <input type="range" id="logoRotation" min="0" max="360" step="1" value="0">
+            </div>
+
+            <div class="field">
+              <label for="logoDepth">
+                Engraving depth <output id="logoDepthOut">0.6</output>
+                <small>mm</small>
+              </label>
+              <input type="range" id="logoDepth" min="0.2" max="1.5" step="0.1" value="0.6">
+            </div>
+
+            <button type="button" id="removeLogo" class="text-button">
+              Remove logo
+            </button>
+
+            <p class="field-hint">
+              Logo dimensions retain their original aspect ratio.
+              Position and depth settings will be used for STL engraving.
+            </p>
+          </div>
+        </section>
         <h3>Compartments</h3>
         <div class="select-grid">
           <div class="field">
